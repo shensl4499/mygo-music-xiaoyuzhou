@@ -19,7 +19,7 @@
     { "title": "订阅更新", "page": "updates", "icon": "calendar" },
     { "title": "我的订阅", "builtin": "shows" },
     { "title": "收藏单集", "builtin": "liked" },
-    { "title": "收听历史", "page": "history", "icon": "note" },
+    { "title": "收听历史", "page": "history", "icon": "playlist" },
     { "title": "分类", "page": "categories", "icon": "search" }
   ]
 }
