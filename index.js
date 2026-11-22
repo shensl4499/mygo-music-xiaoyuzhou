@@ -710,7 +710,9 @@ async function inboxPage(key) {
   if (key !== undefined) body.loadMoreKey = key;
   const env = await api("/v1/inbox/list", { body });
   const items = Array.isArray(env.data) ? env.data : [];
-  return { tracks: items.map(toTrack), key: env.loadMoreKey, more: items.length > 0 && env.loadMoreKey != null };
+  // The cursor alone decides whether there is more: a page that came back
+  // empty with a cursor after it is the platform misbehaving, not the end.
+  return { tracks: items.map(toTrack), key: env.loadMoreKey, more: env.loadMoreKey != null };
 }
 
 async function historyPage(key) {
@@ -719,7 +721,43 @@ async function historyPage(key) {
   const env = await api("/v1/episode-played/list-history", { body });
   const items = Array.isArray(env.data) ? env.data : [];
   const tracks = items.map((row) => object(row).episode).filter((e) => text(object(e).eid)).map(toTrack);
-  return { tracks, key: env.loadMoreKey, more: tracks.length > 0 && env.loadMoreKey != null };
+  return { tracks, key: env.loadMoreKey, more: env.loadMoreKey != null };
+}
+
+// A browse page takes no offset, so one load has to stand for "all" by
+// itself. The platform answers a page at a time — 15 updates, 20 plays — and
+// ignores a larger limit, so "See All" shows a single page unless the pages
+// are drained here.
+//
+// There is a ceiling on purpose. A listener with years of updates has
+// thousands of them: the pages to reach the end would take far longer than
+// the host allows one call, and past a few hundred the list is no longer
+// something anyone scrolls. So the drain stops at SEE_ALL_LIMIT and says so,
+// rather than paging on for ever or quietly pretending that's all there is.
+const SEE_ALL_LIMIT = 300;
+
+async function drained(label, fetchPage) {
+  const out = [];
+  const seen = new Set();
+  let cursor;
+  for (;;) {
+    const p = await fetchPage(cursor);
+    if (!p.tracks.length) {
+      // An empty page with a cursor after it is the platform misbehaving, not
+      // the end of the list.
+      if (p.more) throw new Error(`${label}返回了空页，请稍后再试`);
+      return { tracks: out, capped: false };
+    }
+    for (const t of p.tracks) {
+      // An entry without an id can't be played or told apart from another.
+      if (!t.id || seen.has(t.id)) continue;
+      seen.add(t.id);
+      out.push(t);
+    }
+    if (!p.more) return { tracks: out, capped: false };
+    if (out.length >= SEE_ALL_LIMIT) return { tracks: out.slice(0, SEE_ALL_LIMIT), capped: true };
+    cursor = p.key;
+  }
 }
 
 // The discovery feed is a list of typed blocks; only the two that hold
@@ -787,12 +825,20 @@ export async function browse({ page }) {
     };
   }
   if (base === "updates") {
-    const p = await inboxPage(key);
-    return { title: "订阅更新", sections: [{ tracks: p.tracks, morePage: p.more ? pageName("updates", p.key) : undefined, empty: "没有更多更新了" }] };
+    const p = await drained("订阅更新", inboxPage);
+    return {
+      title: "订阅更新",
+      description: p.capped ? `只列出最近 ${SEE_ALL_LIMIT} 条更新，更早的内容请在小宇宙 App 内查看` : undefined,
+      sections: [{ tracks: p.tracks, empty: "没有更多更新了" }],
+    };
   }
   if (base === "history") {
-    const p = await historyPage(key);
-    return { title: "收听历史", sections: [{ tracks: p.tracks, morePage: p.more ? pageName("history", p.key) : undefined, empty: "还没有收听记录" }] };
+    const p = await drained("收听历史", historyPage);
+    return {
+      title: "收听历史",
+      description: p.capped ? `只列出最近 ${SEE_ALL_LIMIT} 条记录，更早的内容请在小宇宙 App 内查看` : undefined,
+      sections: [{ tracks: p.tracks, empty: "还没有收听记录" }],
+    };
   }
   if (base === "categories") {
     const env = await api("/v1/category/list-all", { body: {} });
