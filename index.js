@@ -78,7 +78,7 @@ export function mediaOf(episode) {
 
 const API = "https://api.xiaoyuzhoufm.com";
 const WEB_API = "https://web-api.xiaoyuzhoufm.com";
-const UA = "MyGoMusic-Xiaoyuzhou/0.1.0 (unofficial podcast plugin)";
+const UA = "MyGoMusic-Xiaoyuzhou/0.1.1 (unofficial podcast plugin)";
 const SESSION_KEY = "session";
 
 // Only these POSTs are reads. Anything else might already have taken effect,
